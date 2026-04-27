@@ -280,9 +280,27 @@ function App() {
     if (gameRunning) {
       clearQueuedNextSet();
       setGameRunning(false);
-      setFeedback((value) =>
-        value.revealAnswer ? value : { ...value, message: "Paused. Press Start to resume." }
-      );
+      setStreak(0);
+      setCorrect(0);
+      setIncorrect(0);
+      setTotalCorrectResponseTimeMs(0);
+      setCorrectNotesSolved(0);
+      setPendingFailedTimeMs(0);
+      setCompletedSets(0);
+      setHasSubmittedRound(false);
+      setLeaderboardName("");
+      setLeaderboardNameError(null);
+      setLocked(false);
+      setCurrentNotes(generateNoteSet(mode, notesPerSet));
+      setCurrentNoteIndex(0);
+      setNoteStartedAt(Date.now());
+      setElapsedNow(Date.now());
+      setLastResponseTimeMs(0);
+      setFeedback({
+        revealAnswer: false,
+        lastGuess: null,
+        message: "Press Start to begin."
+      });
       return;
     }
 
