@@ -69,6 +69,50 @@ h1 {
   margin-bottom: 1rem;
 }
 
+.settings-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.2rem 0.8rem 0.1rem;
+  margin-bottom: 1rem;
+  background: #f9fafb;
+}
+
+.settings-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #1f2937;
+  padding: 0.45rem 0;
+  user-select: none;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.session-row span {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.session-btn {
+  border: 1px solid #2563eb;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 0.45rem 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.session-btn:hover {
+  border-color: #1d4ed8;
+}
+
 .set-size-row {
   display: flex;
   align-items: center;
@@ -89,6 +133,15 @@ h1 {
   color: #111827;
   padding: 0.45rem 0.6rem;
   font-weight: 600;
+}
+
+.slider-row {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.slider-row input[type="range"] {
+  width: min(420px, 100%);
 }
 
 .mode-row button,
