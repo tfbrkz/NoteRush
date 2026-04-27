@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Profanity } from "@2toad/profanity";
 import { AnswerButtons } from "./components/AnswerButtons";
 import { ScoreTracker } from "./components/ScoreTracker";
 import { StaffDisplay } from "./components/StaffDisplay";
@@ -26,6 +27,7 @@ const DEFAULT_NOTES_PER_SET = 4;
 const DEFAULT_NUMBER_OF_SETS = 5;
 const LEADERBOARD_STORAGE_KEY = "speednote-leaderboard-v1";
 const LEADERBOARD_MAX_ENTRIES = 10;
+const LEADERBOARD_NAME_MAX_LENGTH = 24;
 const ADSENSE_CLIENT_ID = import.meta.env.VITE_ADSENSE_CLIENT_ID as string | undefined;
 const ADSENSE_LEFT_SLOT_ID = import.meta.env.VITE_ADSENSE_LEFT_SLOT_ID as string | undefined;
 const ADSENSE_RIGHT_SLOT_ID = import.meta.env.VITE_ADSENSE_RIGHT_SLOT_ID as string | undefined;
@@ -97,6 +99,33 @@ function generateNoteSet(mode: ClefMode, notesPerSet: number): GeneratedNote[] {
   return notes;
 }
 
+const profanity = new Profanity();
+
+function validateLeaderboardName(rawName: string) {
+  const name = rawName.trim();
+  if (!name) {
+    return "Please enter a name.";
+  }
+
+  if (name.length > LEADERBOARD_NAME_MAX_LENGTH) {
+    return `Name must be ${LEADERBOARD_NAME_MAX_LENGTH} characters or less.`;
+  }
+
+  const hasUrlPattern =
+    /(https?:\/\/|www\.|[a-z0-9-]+\.(com|net|org|io|co|gg|app|dev|me|tv|xyz|uk|us|ca|de|fr|jp|au|nl|ru|ch|it|es|in)\b)/i.test(
+      name
+    );
+  if (hasUrlPattern) {
+    return "Names cannot contain links or website addresses.";
+  }
+
+  if (profanity.exists(name)) {
+    return "Please choose a cleaner name.";
+  }
+
+  return null;
+}
+
 function App() {
   const [mode, setMode] = useState<ClefMode>(DEFAULT_MODE);
   const [gameRunning, setGameRunning] = useState(false);
@@ -120,6 +149,7 @@ function App() {
   const [locked, setLocked] = useState(false);
   const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>(() => loadLeaderboardEntries());
   const [leaderboardName, setLeaderboardName] = useState("");
+  const [leaderboardNameError, setLeaderboardNameError] = useState<string | null>(null);
   const [hasSubmittedRound, setHasSubmittedRound] = useState(false);
   const nextSetTimeoutRef = useRef<number | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>({
@@ -165,6 +195,7 @@ function App() {
       setLocked(false);
       setHasSubmittedRound(false);
       setLeaderboardName("");
+      setLeaderboardNameError(null);
       setCurrentNotes(generateNoteSet(nextMode, notesPerSet));
       setCurrentNoteIndex(0);
       setNoteStartedAt(Date.now());
@@ -194,6 +225,7 @@ function App() {
       setLocked(false);
       setHasSubmittedRound(false);
       setLeaderboardName("");
+      setLeaderboardNameError(null);
       setCurrentNotes(generateNoteSet(mode, count));
       setCurrentNoteIndex(0);
       setNoteStartedAt(Date.now());
@@ -223,6 +255,7 @@ function App() {
       setLocked(false);
       setHasSubmittedRound(false);
       setLeaderboardName("");
+      setLeaderboardNameError(null);
       setCurrentNotes(generateNoteSet(mode, notesPerSet));
       setCurrentNoteIndex(0);
       setNoteStartedAt(Date.now());
@@ -273,6 +306,7 @@ function App() {
       setCompletedSets(0);
       setHasSubmittedRound(false);
       setLeaderboardName("");
+      setLeaderboardNameError(null);
     }
 
     // Always start from a fresh set so users cannot pre-solve before pressing Start.
@@ -456,6 +490,12 @@ function App() {
       return;
     }
 
+    const validationError = validateLeaderboardName(trimmedName);
+    if (validationError) {
+      setLeaderboardNameError(validationError);
+      return;
+    }
+
     const entry: LeaderboardEntry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       name: trimmedName,
@@ -475,6 +515,7 @@ function App() {
       return nextEntries.slice(0, LEADERBOARD_MAX_ENTRIES);
     });
     setHasSubmittedRound(true);
+    setLeaderboardNameError(null);
   }, [averageResponseMs, completedSets, correct, hasSubmittedRound, leaderboardEligible, leaderboardName, roundEnded]);
 
   return (
@@ -511,9 +552,14 @@ function App() {
             <input
               type="text"
               value={leaderboardName}
-              onChange={(event) => setLeaderboardName(event.target.value)}
+              onChange={(event) => {
+                setLeaderboardName(event.target.value);
+                if (leaderboardNameError) {
+                  setLeaderboardNameError(null);
+                }
+              }}
               placeholder="Enter name"
-              maxLength={24}
+              maxLength={LEADERBOARD_NAME_MAX_LENGTH}
               disabled={hasSubmittedRound || !leaderboardEligible}
             />
             <button
@@ -524,6 +570,7 @@ function App() {
               {hasSubmittedRound ? "Submitted" : "Submit"}
             </button>
           </div>
+          {leaderboardNameError && <p className="leaderboard-error">{leaderboardNameError}</p>}
         </section>
       )}
 
