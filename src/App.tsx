@@ -522,7 +522,7 @@ function App() {
     <main className="page-layout">
       <AdRail label="Left" slotId={ADSENSE_LEFT_SLOT_ID} />
       <section className="app-shell">
-        <h1>PianoSight - improve your sight reading</h1>
+        <h1>SpeedNote - learn to read sheet music at speed</h1>
         <ScoreTracker
           streak={streak}
           correct={correct}
@@ -656,6 +656,7 @@ function App() {
         <p className={`feedback ${feedbackClass}`}>{feedback.message}</p>
       </section>
       <AdRail label="Right" slotId={ADSENSE_RIGHT_SLOT_ID} />
+      <footer className="site-footer">Copyright &copy; 2026 SpeedNote Piano</footer>
     </main>
   );
 }
