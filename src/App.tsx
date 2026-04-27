@@ -3,7 +3,7 @@ import { AnswerButtons } from "./components/AnswerButtons";
 import { ScoreTracker } from "./components/ScoreTracker";
 import { StaffDisplay } from "./components/StaffDisplay";
 import { generateNote, type ClefMode, type GeneratedNote, type NoteLetter } from "./lib/noteGenerator";
-import { playPianoNote } from "./lib/pianoPlayer";
+import { playPianoNote, subscribeAudioDebug, type AudioDebugState, warmPianoSamples } from "./lib/pianoPlayer";
 
 type FeedbackState = {
   revealAnswer: boolean;
@@ -48,6 +48,13 @@ function App() {
   const [elapsedNow, setElapsedNow] = useState(() => Date.now());
   const [lastResponseTimeMs, setLastResponseTimeMs] = useState(0);
   const [locked, setLocked] = useState(false);
+  const [audioDebug, setAudioDebug] = useState<AudioDebugState>({
+    path: "idle",
+    noteLabel: null,
+    contextState: "none",
+    samplesReady: false,
+    timestampMs: null
+  });
   const nextSetTimeoutRef = useRef<number | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>({
     revealAnswer: false,
@@ -195,6 +202,7 @@ function App() {
     }
 
     // Always start from a fresh set so users cannot pre-solve before pressing Start.
+    void warmPianoSamples();
     nextNoteSet(mode, notesPerSet);
     setGameRunning(true);
     setFeedback({
@@ -331,6 +339,12 @@ function App() {
   }, [gameRunning, handleAnswer, locked]);
 
   useEffect(() => {
+    return subscribeAudioDebug((state) => {
+      setAudioDebug(state);
+    });
+  }, []);
+
+  useEffect(() => {
     return () => {
       clearQueuedNextSet();
     };
@@ -371,6 +385,11 @@ function App() {
           Sets: {completedSets}/{numberOfSets}
         </span>
       </div>
+      <p className="audio-debug">
+        Audio debug: {audioDebug.path} | ctx: {audioDebug.contextState} | ready:{" "}
+        {audioDebug.samplesReady ? "yes" : "no"} | note: {audioDebug.noteLabel ?? "-"} | ts:{" "}
+        {audioDebug.timestampMs ? new Date(audioDebug.timestampMs).toLocaleTimeString() : "-"}
+      </p>
 
       <details className="settings-panel" open={settingsOpen} onToggle={(event) => setSettingsOpen(event.currentTarget.open)}>
         <summary>Settings {settingsOpen ? "▼" : "▶"}</summary>
