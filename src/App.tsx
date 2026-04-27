@@ -26,7 +26,6 @@ const NOTES_PER_SET_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 const DEFAULT_MODE: ClefMode = "treble";
 const DEFAULT_NOTES_PER_SET = 4;
 const DEFAULT_NUMBER_OF_SETS = 5;
-const LEADERBOARD_STORAGE_KEY = "speednote-leaderboard-v1";
 const LEADERBOARD_MAX_ENTRIES = 10;
 const LEADERBOARD_NAME_MAX_LENGTH = 24;
 const ADSENSE_CLIENT_ID = import.meta.env.VITE_ADSENSE_CLIENT_ID as string | undefined;
@@ -73,34 +72,6 @@ function AdRail({ slotId, label }: AdRailProps) {
       />
     </aside>
   );
-}
-
-function loadLeaderboardEntries(): LeaderboardEntry[] {
-  const storedValue = window.localStorage.getItem(LEADERBOARD_STORAGE_KEY);
-  if (!storedValue) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(storedValue) as Array<Partial<LeaderboardEntry>>;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter((entry) => typeof entry.id === "string" && typeof entry.name === "string")
-      .map((entry) => ({
-        id: entry.id as string,
-        name: entry.name as string,
-        mode: entry.mode === "treble" || entry.mode === "bass" || entry.mode === "mixed" ? entry.mode : "unknown",
-        totalSets: typeof entry.totalSets === "number" ? entry.totalSets : 0,
-        totalCorrect: typeof entry.totalCorrect === "number" ? entry.totalCorrect : 0,
-        averageTimePerNoteMs: typeof entry.averageTimePerNoteMs === "number" ? entry.averageTimePerNoteMs : 0,
-        createdAtMs: typeof entry.createdAtMs === "number" ? entry.createdAtMs : Date.now()
-      }));
-  } catch {
-    return [];
-  }
 }
 
 function generateNoteSet(mode: ClefMode, notesPerSet: number): GeneratedNote[] {
@@ -163,10 +134,12 @@ function App() {
   const [elapsedNow, setElapsedNow] = useState(() => Date.now());
   const [lastResponseTimeMs, setLastResponseTimeMs] = useState(0);
   const [locked, setLocked] = useState(false);
-  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>(() => loadLeaderboardEntries());
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
   const [leaderboardModeFilter, setLeaderboardModeFilter] = useState<ClefMode | "all">("all");
   const [leaderboardName, setLeaderboardName] = useState("");
   const [leaderboardNameError, setLeaderboardNameError] = useState<string | null>(null);
+  const [adminKey, setAdminKey] = useState("");
+  const [leaderboardApiError, setLeaderboardApiError] = useState<string | null>(null);
   const [hasSubmittedRound, setHasSubmittedRound] = useState(false);
   const nextSetTimeoutRef = useRef<number | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>({
@@ -464,8 +437,31 @@ function App() {
   }, [gameRunning, handleAnswer, locked]);
 
   useEffect(() => {
-    window.localStorage.setItem(LEADERBOARD_STORAGE_KEY, JSON.stringify(leaderboardEntries));
-  }, [leaderboardEntries]);
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/leaderboard");
+        if (!response.ok) {
+          throw new Error("Failed to fetch leaderboard");
+        }
+        const data = (await response.json()) as { entries?: LeaderboardEntry[] };
+        if (cancelled) {
+          return;
+        }
+        setLeaderboardEntries(Array.isArray(data.entries) ? data.entries : []);
+        setLeaderboardApiError(null);
+      } catch {
+        if (!cancelled) {
+          setLeaderboardApiError("Leaderboard service unavailable.");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -528,18 +524,63 @@ function App() {
       createdAtMs: Date.now()
     };
 
-    setLeaderboardEntries((value) => {
-      const nextEntries = [...value, entry].sort((left, right) => {
-        if (left.averageTimePerNoteMs === right.averageTimePerNoteMs) {
-          return left.createdAtMs - right.createdAtMs;
+    void (async () => {
+      try {
+        const response = await fetch("/api/leaderboard", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(entry)
+        });
+
+        if (!response.ok) {
+          const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null;
+          setLeaderboardNameError(errorPayload?.error ?? "Failed to submit score.");
+          return;
         }
-        return left.averageTimePerNoteMs - right.averageTimePerNoteMs;
-      });
-      return nextEntries.slice(0, LEADERBOARD_MAX_ENTRIES);
-    });
-    setHasSubmittedRound(true);
-    setLeaderboardNameError(null);
+
+        const payload = (await response.json()) as { entries?: LeaderboardEntry[] };
+        setLeaderboardEntries(Array.isArray(payload.entries) ? payload.entries : []);
+        setHasSubmittedRound(true);
+        setLeaderboardNameError(null);
+        setLeaderboardApiError(null);
+      } catch {
+        setLeaderboardNameError("Failed to submit score.");
+      }
+    })();
   }, [averageResponseMs, completedSets, correct, hasSubmittedRound, leaderboardEligible, leaderboardName, mode, roundEnded]);
+
+  const handleAdminDelete = useCallback(
+    async (entryId: string) => {
+      if (!adminKey.trim()) {
+        setLeaderboardApiError("Enter admin key to delete entries.");
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/leaderboard?id=${encodeURIComponent(entryId)}`, {
+          method: "DELETE",
+          headers: {
+            "x-admin-key": adminKey.trim()
+          }
+        });
+
+        if (!response.ok) {
+          const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null;
+          setLeaderboardApiError(errorPayload?.error ?? "Failed to delete entry.");
+          return;
+        }
+
+        const payload = (await response.json()) as { entries?: LeaderboardEntry[] };
+        setLeaderboardEntries(Array.isArray(payload.entries) ? payload.entries : []);
+        setLeaderboardApiError(null);
+      } catch {
+        setLeaderboardApiError("Failed to delete entry.");
+      }
+    },
+    [adminKey]
+  );
 
   return (
     <main className="page-layout">
@@ -668,6 +709,15 @@ function App() {
             </select>
           </label>
         </div>
+        <div className="leaderboard-admin-row">
+          <input
+            type="password"
+            value={adminKey}
+            onChange={(event) => setAdminKey(event.target.value)}
+            placeholder="Admin key for deletes"
+          />
+        </div>
+        {leaderboardApiError && <p className="leaderboard-error">{leaderboardApiError}</p>}
         {filteredLeaderboard.length === 0 ? (
           <p className="leaderboard-empty">No scores submitted yet.</p>
         ) : (
@@ -678,6 +728,7 @@ function App() {
               <span>Total sets</span>
               <span>Total correct</span>
               <span>Avg time / note</span>
+              <span>Admin</span>
             </div>
             {filteredLeaderboard.map((entry) => (
               <div key={entry.id} className="leaderboard-row">
@@ -686,6 +737,16 @@ function App() {
                 <span>{entry.totalSets}</span>
                 <span>{entry.totalCorrect}</span>
                 <span>{(entry.averageTimePerNoteMs / 1000).toFixed(2)}s</span>
+                <span>
+                  <button
+                    type="button"
+                    className="leaderboard-delete-btn"
+                    onClick={() => void handleAdminDelete(entry.id)}
+                    disabled={!adminKey.trim()}
+                  >
+                    Delete
+                  </button>
+                </span>
               </div>
             ))}
           </div>

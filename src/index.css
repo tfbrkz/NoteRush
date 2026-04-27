@@ -364,6 +364,19 @@ h1 {
   color: #111827;
 }
 
+.leaderboard-admin-row {
+  margin-bottom: 0.6rem;
+}
+
+.leaderboard-admin-row input {
+  width: min(320px, 100%);
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.35rem 0.5rem;
+  color: #111827;
+}
+
 .leaderboard-empty {
   margin: 0;
   font-size: 0.88rem;
@@ -377,7 +390,7 @@ h1 {
 
 .leaderboard-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.8fr) minmax(80px, 1fr) repeat(3, minmax(90px, 1fr));
+  grid-template-columns: minmax(120px, 1.8fr) minmax(80px, 1fr) repeat(4, minmax(90px, 1fr));
   gap: 0.45rem;
   padding: 0.45rem 0.5rem;
   border-radius: 8px;
@@ -388,6 +401,21 @@ h1 {
 .leaderboard-header {
   font-weight: 700;
   background: #f1f5f9;
+}
+
+.leaderboard-delete-btn {
+  border: 1px solid #dc2626;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #dc2626;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.leaderboard-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .site-footer {
