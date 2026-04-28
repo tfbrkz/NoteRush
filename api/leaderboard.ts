@@ -1,35 +1,35 @@
 import { Profanity } from "@2toad/profanity";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { kv } from "@vercel/kv";
 
 type ClefMode = "treble" | "bass" | "mixed";
+type DifficultyTier = "beginner" | "intermediate" | "advanced";
 type StoredMode = ClefMode | "unknown";
 
 type LeaderboardEntry = {
   id: string;
-  name: string;
+  user: string;
+  score: number;
+  difficulty: DifficultyTier;
   mode: StoredMode;
-  totalSets: number;
-  totalCorrect: number;
-  averageTimePerNoteMs: number;
-  createdAtMs: number;
+  timestamp: number;
 };
 
 const profanity = new Profanity();
 const MAX_ENTRIES = 10;
 const NAME_MAX_LENGTH = 24;
-
-const inMemoryStore: {
-  entries: LeaderboardEntry[];
-} = {
-  entries: []
-};
+const KV_KEY = "leaderboard:entries";
 
 function isMode(value: unknown): value is ClefMode {
   return value === "treble" || value === "bass" || value === "mixed";
 }
 
-function validateName(name: string) {
-  const trimmed = name.trim();
+function isDifficulty(value: unknown): value is DifficultyTier {
+  return value === "beginner" || value === "intermediate" || value === "advanced";
+}
+
+function validateName(user: string) {
+  const trimmed = user.trim();
   if (!trimmed) {
     return "Please enter a name.";
   }
@@ -54,60 +54,88 @@ function validateName(name: string) {
 }
 
 function sortLeaderboard(entries: LeaderboardEntry[]) {
-  return [...entries].sort((left, right) => {
-    if (left.averageTimePerNoteMs === right.averageTimePerNoteMs) {
-      return left.createdAtMs - right.createdAtMs;
-    }
-    return left.averageTimePerNoteMs - right.averageTimePerNoteMs;
-  });
+  return [...entries]
+    .sort((left, right) => {
+      if (left.score === right.score) {
+        return left.timestamp - right.timestamp;
+      }
+      return right.score - left.score;
+    })
+    .slice(0, MAX_ENTRIES);
 }
 
-function getEntries() {
-  return sortLeaderboard(inMemoryStore.entries).slice(0, MAX_ENTRIES);
+async function getEntries() {
+  const stored = await kv.get<LeaderboardEntry[]>(KV_KEY);
+  if (!Array.isArray(stored)) {
+    return [];
+  }
+  return sortLeaderboard(stored);
+}
+
+async function saveEntries(entries: LeaderboardEntry[]) {
+  await kv.set(KV_KEY, sortLeaderboard(entries));
+}
+
+function toLegacyScore(totalCorrect: number, averageTimePerNoteMs: number) {
+  if (!Number.isFinite(averageTimePerNoteMs) || averageTimePerNoteMs <= 0) {
+    return 0;
+  }
+  return Math.max(1, Math.round((totalCorrect / averageTimePerNoteMs) * 100000));
+}
+
+function parseEntryPayload(body: unknown): LeaderboardEntry | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const payload = body as Record<string, unknown>;
+  const user = typeof payload.user === "string" ? payload.user : typeof payload.name === "string" ? payload.name : "";
+  const nameError = validateName(user);
+  if (nameError) {
+    return null;
+  }
+
+  const mode: StoredMode = isMode(payload.mode) ? payload.mode : "unknown";
+  const difficulty: DifficultyTier = isDifficulty(payload.difficulty) ? payload.difficulty : "beginner";
+
+  let score = typeof payload.score === "number" ? payload.score : 0;
+  if (!Number.isFinite(score) || score <= 0) {
+    const totalCorrect = typeof payload.totalCorrect === "number" ? payload.totalCorrect : 0;
+    const averageTimePerNoteMs = typeof payload.averageTimePerNoteMs === "number" ? payload.averageTimePerNoteMs : 0;
+    score = toLegacyScore(totalCorrect, averageTimePerNoteMs);
+  }
+
+  if (!Number.isFinite(score) || score <= 0) {
+    return null;
+  }
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    user: user.trim(),
+    score,
+    difficulty,
+    mode,
+    timestamp: Date.now()
+  };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "GET") {
-    res.status(200).json({ entries: getEntries() });
+    const entries = await getEntries();
+    res.status(200).json({ entries });
     return;
   }
 
   if (req.method === "POST") {
-    const body = req.body as Partial<LeaderboardEntry>;
-    const name = typeof body?.name === "string" ? body.name : "";
-    const mode: StoredMode = isMode(body?.mode) ? body.mode : "unknown";
-    const totalSets = typeof body?.totalSets === "number" ? body.totalSets : 0;
-    const totalCorrect = typeof body?.totalCorrect === "number" ? body.totalCorrect : 0;
-    const averageTimePerNoteMs = typeof body?.averageTimePerNoteMs === "number" ? body.averageTimePerNoteMs : 0;
-
-    const nameError = validateName(name);
-    if (nameError) {
-      res.status(400).json({ error: nameError });
+    const entry = parseEntryPayload(req.body);
+    if (!entry) {
+      res.status(400).json({ error: "Invalid leaderboard payload." });
       return;
     }
 
-    if (totalSets < 5 || totalCorrect !== totalSets) {
-      res.status(400).json({ error: "Leaderboard requires at least 5 sets and a perfect run." });
-      return;
-    }
-
-    if (!Number.isFinite(averageTimePerNoteMs) || averageTimePerNoteMs <= 0) {
-      res.status(400).json({ error: "Average time is invalid." });
-      return;
-    }
-
-    const entry: LeaderboardEntry = {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name: name.trim(),
-      mode,
-      totalSets,
-      totalCorrect,
-      averageTimePerNoteMs,
-      createdAtMs: Date.now()
-    };
-
-    inMemoryStore.entries = sortLeaderboard([...inMemoryStore.entries, entry]).slice(0, MAX_ENTRIES);
-    res.status(201).json({ entry, entries: inMemoryStore.entries });
+    const entries = await getEntries();
+    const nextEntries = sortLeaderboard([...entries, entry]);
+    await saveEntries(nextEntries);
+    res.status(201).json({ entry, entries: nextEntries });
     return;
   }
 
@@ -125,14 +153,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const previousLength = inMemoryStore.entries.length;
-    inMemoryStore.entries = inMemoryStore.entries.filter((entry) => entry.id !== id);
-    if (inMemoryStore.entries.length === previousLength) {
+    const entries = await getEntries();
+    const nextEntries = entries.filter((entry) => entry.id !== id);
+    if (nextEntries.length === entries.length) {
       res.status(404).json({ error: "Entry not found" });
       return;
     }
 
-    res.status(200).json({ entries: getEntries() });
+    await saveEntries(nextEntries);
+    res.status(200).json({ entries: nextEntries });
     return;
   }
 

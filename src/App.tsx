@@ -1,31 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Profanity } from "@2toad/profanity";
-import { AnswerButtons } from "./components/AnswerButtons";
-import { ScoreTracker } from "./components/ScoreTracker";
-import { StaffDisplay } from "./components/StaffDisplay";
-import { generateNote, type ClefMode, type GeneratedNote, type NoteLetter } from "./lib/noteGenerator";
-import { playPianoNote, warmPianoSamples } from "./lib/pianoPlayer";
+import { InputController } from "./components/InputController";
+import { StaffContainer } from "./components/StaffContainer";
+import { StatDashboard } from "./components/StatDashboard";
+import { useMidi } from "./providers/midiContext";
+import { useSpeedNoteSession } from "./hooks/useSpeedNoteSession";
+import { type ClefMode, type DifficultyTier, type NoteLetter } from "./lib/noteGenerator";
 
-type FeedbackState = {
-  revealAnswer: boolean;
-  lastGuess: NoteLetter | null;
-  message: string;
-};
-
-type LeaderboardEntry = {
-  id: string;
-  name: string;
-  mode: ClefMode | "unknown";
-  totalSets: number;
-  totalCorrect: number;
-  averageTimePerNoteMs: number;
-  createdAtMs: number;
-};
-
-const NOTES_PER_SET_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
-const DEFAULT_MODE: ClefMode = "treble";
-const DEFAULT_NOTES_PER_SET = 4;
-const DEFAULT_NUMBER_OF_SETS = 5;
 const LEADERBOARD_MAX_ENTRIES = 10;
 const LEADERBOARD_NAME_MAX_LENGTH = 24;
 const ADSENSE_CLIENT_ID = import.meta.env.VITE_ADSENSE_CLIENT_ID as string | undefined;
@@ -74,18 +55,6 @@ function AdRail({ slotId, label }: AdRailProps) {
   );
 }
 
-function generateNoteSet(mode: ClefMode, notesPerSet: number): GeneratedNote[] {
-  if (mode === "mixed") {
-    return Array.from({ length: notesPerSet }, () => generateNote("mixed"));
-  }
-
-  const notes: GeneratedNote[] = [];
-  for (let index = 0; index < notesPerSet; index += 1) {
-    notes.push(generateNote(mode));
-  }
-  return notes;
-}
-
 const profanity = new Profanity();
 
 function validateLeaderboardName(rawName: string) {
@@ -113,27 +82,19 @@ function validateLeaderboardName(rawName: string) {
   return null;
 }
 
+type LeaderboardEntry = {
+  id: string;
+  user: string;
+  score: number;
+  difficulty: DifficultyTier;
+  mode: ClefMode | "unknown";
+  timestamp: number;
+};
+
 function App() {
-  const [mode, setMode] = useState<ClefMode>(DEFAULT_MODE);
-  const [gameRunning, setGameRunning] = useState(false);
-  const [numberOfSets, setNumberOfSets] = useState<number>(DEFAULT_NUMBER_OF_SETS);
-  const [completedSets, setCompletedSets] = useState(0);
-  const [notesPerSet, setNotesPerSet] = useState<number>(DEFAULT_NOTES_PER_SET);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [currentNotes, setCurrentNotes] = useState<GeneratedNote[]>(() =>
-    generateNoteSet(DEFAULT_MODE, DEFAULT_NOTES_PER_SET)
-  );
-  const [currentNoteIndex, setCurrentNoteIndex] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [correct, setCorrect] = useState(0);
-  const [incorrect, setIncorrect] = useState(0);
-  const [totalCorrectResponseTimeMs, setTotalCorrectResponseTimeMs] = useState(0);
-  const [correctNotesSolved, setCorrectNotesSolved] = useState(0);
-  const [pendingFailedTimeMs, setPendingFailedTimeMs] = useState(0);
-  const [noteStartedAt, setNoteStartedAt] = useState(() => Date.now());
-  const [elapsedNow, setElapsedNow] = useState(() => Date.now());
-  const [lastResponseTimeMs, setLastResponseTimeMs] = useState(0);
-  const [locked, setLocked] = useState(false);
+  const { status: midiStatus, errorMessage: midiErrorMessage, subscribeNoteOn } = useMidi();
+  const { state, actions } = useSpeedNoteSession();
   const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
   const [leaderboardModeFilter, setLeaderboardModeFilter] = useState<ClefMode | "all">("all");
   const [leaderboardName, setLeaderboardName] = useState("");
@@ -141,302 +102,10 @@ function App() {
   const [adminKey, setAdminKey] = useState("");
   const [leaderboardApiError, setLeaderboardApiError] = useState<string | null>(null);
   const [hasSubmittedRound, setHasSubmittedRound] = useState(false);
-  const nextSetTimeoutRef = useRef<number | null>(null);
-  const [feedback, setFeedback] = useState<FeedbackState>({
-    revealAnswer: false,
-    lastGuess: null,
-    message: "Press Start to begin."
-  });
-
-  const clearQueuedNextSet = useCallback(() => {
-    if (nextSetTimeoutRef.current !== null) {
-      window.clearTimeout(nextSetTimeoutRef.current);
-      nextSetTimeoutRef.current = null;
-    }
-  }, []);
-
-  const nextNoteSet = useCallback((currentMode: ClefMode, count: number) => {
-    clearQueuedNextSet();
-    setCurrentNotes(generateNoteSet(currentMode, count));
-    setCurrentNoteIndex(0);
-    setNoteStartedAt(Date.now());
-    setElapsedNow(Date.now());
-    setLastResponseTimeMs(0);
-    setLocked(false);
-    setFeedback({
-      revealAnswer: false,
-      lastGuess: null,
-      message: "Pick the letter name for this note."
-    });
-  }, [clearQueuedNextSet]);
-
-  const onModeChange = useCallback(
-    (nextMode: ClefMode) => {
-      clearQueuedNextSet();
-      setMode(nextMode);
-      setGameRunning(false);
-      setCompletedSets(0);
-      setStreak(0);
-      setCorrect(0);
-      setIncorrect(0);
-      setTotalCorrectResponseTimeMs(0);
-      setCorrectNotesSolved(0);
-      setPendingFailedTimeMs(0);
-      setLocked(false);
-      setHasSubmittedRound(false);
-      setLeaderboardName("");
-      setLeaderboardNameError(null);
-      setCurrentNotes(generateNoteSet(nextMode, notesPerSet));
-      setCurrentNoteIndex(0);
-      setNoteStartedAt(Date.now());
-      setElapsedNow(Date.now());
-      setLastResponseTimeMs(0);
-      setFeedback({
-        revealAnswer: false,
-        lastGuess: null,
-        message: "Mode updated. Press Start to begin."
-      });
-    },
-    [clearQueuedNextSet, notesPerSet]
-  );
-
-  const onNotesPerSetChange = useCallback(
-    (count: number) => {
-      clearQueuedNextSet();
-      setNotesPerSet(count);
-      setGameRunning(false);
-      setCompletedSets(0);
-      setStreak(0);
-      setCorrect(0);
-      setIncorrect(0);
-      setTotalCorrectResponseTimeMs(0);
-      setCorrectNotesSolved(0);
-      setPendingFailedTimeMs(0);
-      setLocked(false);
-      setHasSubmittedRound(false);
-      setLeaderboardName("");
-      setLeaderboardNameError(null);
-      setCurrentNotes(generateNoteSet(mode, count));
-      setCurrentNoteIndex(0);
-      setNoteStartedAt(Date.now());
-      setElapsedNow(Date.now());
-      setLastResponseTimeMs(0);
-      setFeedback({
-        revealAnswer: false,
-        lastGuess: null,
-        message: "Set size updated. Press Start to begin."
-      });
-    },
-    [clearQueuedNextSet, mode]
-  );
-
-  const onNumberOfSetsChange = useCallback(
-    (count: number) => {
-      clearQueuedNextSet();
-      setNumberOfSets(count);
-      setGameRunning(false);
-      setCompletedSets(0);
-      setStreak(0);
-      setCorrect(0);
-      setIncorrect(0);
-      setTotalCorrectResponseTimeMs(0);
-      setCorrectNotesSolved(0);
-      setPendingFailedTimeMs(0);
-      setLocked(false);
-      setHasSubmittedRound(false);
-      setLeaderboardName("");
-      setLeaderboardNameError(null);
-      setCurrentNotes(generateNoteSet(mode, notesPerSet));
-      setCurrentNoteIndex(0);
-      setNoteStartedAt(Date.now());
-      setElapsedNow(Date.now());
-      setLastResponseTimeMs(0);
-      setFeedback({
-        revealAnswer: false,
-        lastGuess: null,
-        message: `Number of sets updated to ${count}. Press Start to begin.`
-      });
-    },
-    [clearQueuedNextSet, mode, notesPerSet]
-  );
-
-  const scheduleNextOrStop = useCallback(
-    (nextCompletedSets: number) => {
-      setCompletedSets(nextCompletedSets);
-      if (nextCompletedSets >= numberOfSets) {
-        setGameRunning(false);
-        clearQueuedNextSet();
-        return;
-      }
-
-      nextSetTimeoutRef.current = window.setTimeout(() => {
-        nextNoteSet(mode, notesPerSet);
-      }, 1000);
-    },
-    [clearQueuedNextSet, mode, nextNoteSet, notesPerSet, numberOfSets]
-  );
-
-  const handleStartStop = useCallback(() => {
-    if (gameRunning) {
-      clearQueuedNextSet();
-      setGameRunning(false);
-      setStreak(0);
-      setCorrect(0);
-      setIncorrect(0);
-      setTotalCorrectResponseTimeMs(0);
-      setCorrectNotesSolved(0);
-      setPendingFailedTimeMs(0);
-      setCompletedSets(0);
-      setHasSubmittedRound(false);
-      setLeaderboardName("");
-      setLeaderboardNameError(null);
-      setLocked(false);
-      setCurrentNotes(generateNoteSet(mode, notesPerSet));
-      setCurrentNoteIndex(0);
-      setNoteStartedAt(Date.now());
-      setElapsedNow(Date.now());
-      setLastResponseTimeMs(0);
-      setFeedback({
-        revealAnswer: false,
-        lastGuess: null,
-        message: "Press Start to begin."
-      });
-      return;
-    }
-
-    if (completedSets >= numberOfSets) {
-      setStreak(0);
-      setCorrect(0);
-      setIncorrect(0);
-      setTotalCorrectResponseTimeMs(0);
-      setCorrectNotesSolved(0);
-      setPendingFailedTimeMs(0);
-      setCompletedSets(0);
-      setHasSubmittedRound(false);
-      setLeaderboardName("");
-      setLeaderboardNameError(null);
-    }
-
-    // Always start from a fresh set so users cannot pre-solve before pressing Start.
-    void warmPianoSamples();
-    nextNoteSet(mode, notesPerSet);
-    setGameRunning(true);
-    setFeedback({
-      revealAnswer: false,
-      lastGuess: null,
-      message: "Pick the letter name for this note."
-    });
-  }, [
-    completedSets,
-    gameRunning,
-    mode,
-    nextNoteSet,
-    notesPerSet,
-    numberOfSets,
-    clearQueuedNextSet
-  ]);
-
-  const handleAnswer = useCallback(
-    (letter: NoteLetter) => {
-      if (locked || !gameRunning) {
-        return;
-      }
-
-      const targetNote = currentNotes[currentNoteIndex];
-      const isCorrect = letter === targetNote.letter;
-
-      if (!isCorrect) {
-        const responseTimeMs = Date.now() - noteStartedAt;
-        setLastResponseTimeMs(responseTimeMs);
-        setLocked(true);
-        setFeedback({
-          revealAnswer: true,
-          lastGuess: letter,
-          message: `Set failed. Expected ${targetNote.letter} for note ${currentNoteIndex + 1}.`
-        });
-        setIncorrect((value) => value + 1);
-        setStreak(0);
-        setPendingFailedTimeMs((value) => value + responseTimeMs);
-        const nextCompletedSets = completedSets + 1;
-        scheduleNextOrStop(nextCompletedSets);
-        if (nextCompletedSets >= numberOfSets) {
-          setFeedback({
-            revealAnswer: true,
-            lastGuess: letter,
-            message: `Set failed. Expected ${targetNote.letter}. Session complete (${nextCompletedSets}/${numberOfSets} sets).`
-          });
-        }
-        return;
-      }
-
-      void playPianoNote(targetNote.label).catch(() => {
-        // Ignore audio playback failures so quiz flow is never blocked.
-      });
-
-      const isLastInSet = currentNoteIndex === currentNotes.length - 1;
-      if (!isLastInSet) {
-        setCurrentNoteIndex((value) => value + 1);
-        setFeedback({
-          revealAnswer: false,
-          lastGuess: letter,
-          message: `Good. Now identify note ${currentNoteIndex + 2} of ${currentNotes.length}.`
-        });
-        return;
-      }
-
-      const responseTimeMs = Date.now() - noteStartedAt;
-      setLastResponseTimeMs(responseTimeMs);
-      setLocked(true);
-      setFeedback({
-        revealAnswer: true,
-        lastGuess: letter,
-        message: `Set complete! All ${currentNotes.length} notes were correct.`
-      });
-      setCorrect((value) => value + 1);
-      setCorrectNotesSolved((value) => value + currentNotes.length);
-      setStreak((value) => value + 1);
-      setTotalCorrectResponseTimeMs((value) => value + pendingFailedTimeMs + responseTimeMs);
-      setPendingFailedTimeMs(0);
-      const nextCompletedSets = completedSets + 1;
-      scheduleNextOrStop(nextCompletedSets);
-      if (nextCompletedSets >= numberOfSets) {
-        setFeedback({
-          revealAnswer: true,
-          lastGuess: letter,
-          message: `Set complete! Session complete (${nextCompletedSets}/${numberOfSets} sets).`
-        });
-      }
-    },
-    [
-      completedSets,
-      currentNoteIndex,
-      currentNotes,
-      gameRunning,
-      locked,
-      noteStartedAt,
-      numberOfSets,
-      pendingFailedTimeMs,
-      scheduleNextOrStop
-    ]
-  );
-
-  useEffect(() => {
-    if (locked || !gameRunning) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setElapsedNow(Date.now());
-    }, 100);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [gameRunning, locked]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!gameRunning || locked) {
+      if (!state.gameRunning || state.locked) {
         return;
       }
 
@@ -445,14 +114,23 @@ function App() {
         return;
       }
 
-      handleAnswer(letter as NoteLetter);
+      actions.handleAnswer(letter as NoteLetter);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [gameRunning, handleAnswer, locked]);
+  }, [actions, state.gameRunning, state.locked]);
+
+  useEffect(() => {
+    return subscribeNoteOn((noteNumber) => {
+      if (!state.gameRunning || state.locked) {
+        return;
+      }
+      actions.handleMidiAnswer(noteNumber);
+    });
+  }, [actions, state.gameRunning, state.locked, subscribeNoteOn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -481,37 +159,16 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      clearQueuedNextSet();
-    };
-  }, [clearQueuedNextSet]);
-
-  const currentTargetNote = currentNotes[currentNoteIndex];
-
-  const feedbackClass = useMemo(() => {
-    if (!feedback.revealAnswer) {
-      return "neutral";
-    }
-    return feedback.lastGuess === currentTargetNote.letter ? "success" : "error";
-  }, [currentTargetNote.letter, feedback]);
-
-  const currentNoteElapsedMs = useMemo(() => {
-    const elapsed = locked ? lastResponseTimeMs : elapsedNow - noteStartedAt;
-    return Math.max(0, elapsed);
-  }, [elapsedNow, lastResponseTimeMs, locked, noteStartedAt]);
-
-  const averageResponseMs = correctNotesSolved > 0 ? totalCorrectResponseTimeMs / correctNotesSolved : 0;
-  const roundEnded = !gameRunning && completedSets >= numberOfSets;
-  const leaderboardEligible = completedSets >= 5 && correct === completedSets;
   const sortedLeaderboard = useMemo(
     () =>
-      [...leaderboardEntries].sort((left, right) => {
-        if (left.averageTimePerNoteMs === right.averageTimePerNoteMs) {
-          return left.createdAtMs - right.createdAtMs;
-        }
-        return left.averageTimePerNoteMs - right.averageTimePerNoteMs;
-      }).slice(0, LEADERBOARD_MAX_ENTRIES),
+      [...leaderboardEntries]
+        .sort((left, right) => {
+          if (left.score === right.score) {
+            return left.timestamp - right.timestamp;
+          }
+          return right.score - left.score;
+        })
+        .slice(0, LEADERBOARD_MAX_ENTRIES),
     [leaderboardEntries]
   );
   const filteredLeaderboard = useMemo(
@@ -520,9 +177,27 @@ function App() {
     [leaderboardModeFilter, sortedLeaderboard]
   );
 
+  const handleStartStop = useCallback(() => {
+    if (state.gameRunning) {
+      actions.stop();
+      setHasSubmittedRound(false);
+      setLeaderboardName("");
+      setLeaderboardNameError(null);
+      return;
+    }
+    actions.start();
+  }, [actions, state.gameRunning]);
+
+  const leaderboardScore = useMemo(() => {
+    if (state.averageResponseMs <= 0) {
+      return 0;
+    }
+    return Math.max(1, Math.round((state.correct / state.averageResponseMs) * 100000));
+  }, [state.averageResponseMs, state.correct]);
+
   const handleLeaderboardSubmit = useCallback(() => {
     const trimmedName = leaderboardName.trim();
-    if (!trimmedName || !roundEnded || hasSubmittedRound || !leaderboardEligible) {
+    if (!trimmedName || !state.roundEnded || hasSubmittedRound || !state.leaderboardEligible) {
       return;
     }
 
@@ -534,12 +209,11 @@ function App() {
 
     const entry: LeaderboardEntry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name: trimmedName,
-      mode,
-      totalSets: completedSets,
-      totalCorrect: correct,
-      averageTimePerNoteMs: averageResponseMs,
-      createdAtMs: Date.now()
+      user: trimmedName,
+      score: leaderboardScore,
+      difficulty: state.difficulty,
+      mode: state.mode,
+      timestamp: Date.now()
     };
 
     void (async () => {
@@ -567,7 +241,7 @@ function App() {
         setLeaderboardNameError("Failed to submit score.");
       }
     })();
-  }, [averageResponseMs, completedSets, correct, hasSubmittedRound, leaderboardEligible, leaderboardName, mode, roundEnded]);
+  }, [hasSubmittedRound, leaderboardName, leaderboardScore, state.difficulty, state.leaderboardEligible, state.mode, state.roundEnded]);
 
   const handleAdminDelete = useCallback(
     async (entryId: string) => {
@@ -604,174 +278,144 @@ function App() {
     <main className="page-layout">
       <AdRail label="Left" slotId={ADSENSE_LEFT_SLOT_ID} />
       <section className="app-shell">
-        <h1>SpeedNote - learn to read sheet music at speed</h1>
-        <ScoreTracker
-          streak={streak}
-          correct={correct}
-          incorrect={incorrect}
-          currentNoteElapsedMs={currentNoteElapsedMs}
-          averageResponseMs={averageResponseMs}
+        <StatDashboard
+          streak={state.streak}
+          correct={state.correct}
+          incorrect={state.incorrect}
+          currentNoteElapsedMs={state.currentNoteElapsedMs}
+          averageResponseMs={state.averageResponseMs}
+          gameRunning={state.gameRunning}
+          completedSets={state.completedSets}
+          numberOfSets={state.numberOfSets}
+          onStartStop={handleStartStop}
         />
 
-      <div className="session-row">
-        <button type="button" className="session-btn" onClick={handleStartStop}>
-          {gameRunning ? "Stop" : "Start"}
-        </button>
-        <span>
-          Sets: {completedSets}/{numberOfSets}
-        </span>
-      </div>
+        <StaffContainer
+          notes={state.currentNotes}
+          activeNoteIndex={state.currentNoteIndex}
+          feedbackMessage={state.feedback.message}
+          feedbackClass={state.feedbackClass}
+        />
 
-      {roundEnded && (
-        <section className="leaderboard-submit">
-          <h3>Round Complete</h3>
-          <p>
-            {leaderboardEligible
-              ? "Submit this score to the leaderboard."
-              : "Leaderboard requires at least 5 sets and a perfect run (correct sets must equal total sets)."}
-          </p>
-          <div className="leaderboard-submit-row">
-            <input
-              type="text"
-              value={leaderboardName}
-              onChange={(event) => {
-                setLeaderboardName(event.target.value);
-                if (leaderboardNameError) {
-                  setLeaderboardNameError(null);
-                }
-              }}
-              placeholder="Enter name"
-              maxLength={LEADERBOARD_NAME_MAX_LENGTH}
-              disabled={hasSubmittedRound || !leaderboardEligible}
+        <div className="app-lower-grid">
+          <section className="control-stack">
+            <InputController
+              gameRunning={state.gameRunning}
+              locked={state.locked}
+              lastGuess={state.feedback.lastGuess}
+              correctLetter={state.currentTargetNote.letter}
+              revealAnswer={state.feedback.revealAnswer}
+              mode={state.mode}
+              difficulty={state.difficulty}
+              practiceMode={state.practiceMode}
+              notesPerSet={state.notesPerSet}
+              numberOfSets={state.numberOfSets}
+              settingsOpen={settingsOpen}
+              midiStatus={midiErrorMessage ? `error (${midiErrorMessage})` : midiStatus}
+              onAnswer={actions.handleAnswer}
+              onModeChange={actions.onModeChange}
+              onDifficultyChange={actions.onDifficultyChange}
+              onPracticeModeChange={actions.onPracticeModeChange}
+              onNotesPerSetChange={actions.onNotesPerSetChange}
+              onNumberOfSetsChange={actions.onNumberOfSetsChange}
+              onSettingsOpenChange={setSettingsOpen}
             />
-            <button
-              type="button"
-              onClick={handleLeaderboardSubmit}
-              disabled={hasSubmittedRound || !leaderboardEligible || !leaderboardName.trim()}
-            >
-              {hasSubmittedRound ? "Submitted" : "Submit"}
-            </button>
-          </div>
-          {leaderboardNameError && <p className="leaderboard-error">{leaderboardNameError}</p>}
-        </section>
-      )}
-
-      <details className="settings-panel" open={settingsOpen} onToggle={(event) => setSettingsOpen(event.currentTarget.open)}>
-        <summary>Settings {settingsOpen ? "▼" : "▶"}</summary>
-
-        <nav className="mode-row" aria-label="Clef mode">
-          <button type="button" onClick={() => onModeChange("treble")} className={mode === "treble" ? "active" : ""} disabled={gameRunning}>
-            Treble
-          </button>
-          <button type="button" onClick={() => onModeChange("bass")} className={mode === "bass" ? "active" : ""} disabled={gameRunning}>
-            Bass
-          </button>
-          <button type="button" onClick={() => onModeChange("mixed")} className={mode === "mixed" ? "active" : ""} disabled={gameRunning}>
-            Mixed
-          </button>
-        </nav>
-
-        <div className="set-size-row" aria-label="Notes per set">
-          <span>Notes per set</span>
-          <select
-            value={notesPerSet}
-            onChange={(event) => onNotesPerSetChange(Number(event.target.value))}
-            disabled={gameRunning}
-          >
-            {NOTES_PER_SET_OPTIONS.map((count) => (
-              <option key={count} value={count}>
-                {count}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="set-size-row slider-row" aria-label="Number of sets">
-          <span>Number of sets: {numberOfSets}</span>
-          <input
-            type="range"
-            min={1}
-            max={50}
-            step={1}
-            value={numberOfSets}
-            onChange={(event) => onNumberOfSetsChange(Number(event.target.value))}
-            disabled={gameRunning}
-          />
-        </div>
-      </details>
-
-      <section className="trainer-grid">
-        <StaffDisplay notes={currentNotes} activeNoteIndex={currentNoteIndex} />
-        <AnswerButtons
-          disabled={locked || !gameRunning}
-          lastGuess={feedback.lastGuess}
-          correctLetter={currentTargetNote.letter}
-          revealAnswer={feedback.revealAnswer}
-          onAnswer={handleAnswer}
-        />
-      </section>
-
-      <section className="leaderboard-panel" aria-label="Leaderboard">
-        <div className="leaderboard-header-row">
-          <h3>Leaderboard</h3>
-          <label className="leaderboard-filter">
-            <span>Mode</span>
-            <select
-              value={leaderboardModeFilter}
-              onChange={(event) => setLeaderboardModeFilter(event.target.value as ClefMode | "all")}
-            >
-              <option value="all">All</option>
-              <option value="treble">Treble</option>
-              <option value="bass">Bass</option>
-              <option value="mixed">Mixed</option>
-            </select>
-          </label>
-        </div>
-        <div className="leaderboard-admin-row">
-          <input
-            type="password"
-            value={adminKey}
-            onChange={(event) => setAdminKey(event.target.value)}
-            placeholder="Admin key for deletes"
-          />
-        </div>
-        {leaderboardApiError && <p className="leaderboard-error">{leaderboardApiError}</p>}
-        {filteredLeaderboard.length === 0 ? (
-          <p className="leaderboard-empty">No scores submitted yet.</p>
-        ) : (
-          <div className="leaderboard-table">
-            <div className="leaderboard-row leaderboard-header">
-              <span>Name</span>
-              <span>Mode</span>
-              <span>Total sets</span>
-              <span>Total correct</span>
-              <span>Avg time / note</span>
-              <span>Admin</span>
-            </div>
-            {filteredLeaderboard.map((entry) => (
-              <div key={entry.id} className="leaderboard-row">
-                <span>{entry.name}</span>
-                <span>{entry.mode === "unknown" ? "-" : entry.mode}</span>
-                <span>{entry.totalSets}</span>
-                <span>{entry.totalCorrect}</span>
-                <span>{(entry.averageTimePerNoteMs / 1000).toFixed(2)}s</span>
-                <span>
+          </section>
+          <section className="control-stack">
+            {state.roundEnded && (
+              <section className="leaderboard-submit">
+                <h3>Round Complete</h3>
+                <p>
+                  {state.leaderboardEligible
+                    ? "Submit this score to the leaderboard."
+                    : "Leaderboard requires at least 5 sets and a perfect run (correct sets must equal total sets)."}
+                </p>
+                <div className="leaderboard-submit-row">
+                  <input
+                    type="text"
+                    value={leaderboardName}
+                    onChange={(event) => {
+                      setLeaderboardName(event.target.value);
+                      if (leaderboardNameError) {
+                        setLeaderboardNameError(null);
+                      }
+                    }}
+                    placeholder="Enter name"
+                    maxLength={LEADERBOARD_NAME_MAX_LENGTH}
+                    disabled={hasSubmittedRound || !state.leaderboardEligible}
+                  />
                   <button
                     type="button"
-                    className="leaderboard-delete-btn"
-                    onClick={() => void handleAdminDelete(entry.id)}
-                    disabled={!adminKey.trim()}
+                    onClick={handleLeaderboardSubmit}
+                    disabled={hasSubmittedRound || !state.leaderboardEligible || !leaderboardName.trim()}
                   >
-                    Delete
+                    {hasSubmittedRound ? "Submitted" : "Submit"}
                   </button>
-                </span>
+                </div>
+                {leaderboardNameError && <p className="leaderboard-error">{leaderboardNameError}</p>}
+              </section>
+            )}
+            <section className="leaderboard-panel" aria-label="Leaderboard">
+              <div className="leaderboard-header-row">
+                <h3>Leaderboard</h3>
+                <label className="leaderboard-filter">
+                  <span>Mode</span>
+                  <select
+                    value={leaderboardModeFilter}
+                    onChange={(event) => setLeaderboardModeFilter(event.target.value as ClefMode | "all")}
+                  >
+                    <option value="all">All</option>
+                    <option value="treble">Treble</option>
+                    <option value="bass">Bass</option>
+                    <option value="mixed">Mixed</option>
+                  </select>
+                </label>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-        <p className={`feedback ${feedbackClass}`}>{feedback.message}</p>
+              <div className="leaderboard-admin-row">
+                <input
+                  type="password"
+                  value={adminKey}
+                  onChange={(event) => setAdminKey(event.target.value)}
+                  placeholder="Admin key for deletes"
+                />
+              </div>
+              {leaderboardApiError && <p className="leaderboard-error">{leaderboardApiError}</p>}
+              {filteredLeaderboard.length === 0 ? (
+                <p className="leaderboard-empty">No scores submitted yet.</p>
+              ) : (
+                <div className="leaderboard-table">
+                  <div className="leaderboard-row leaderboard-header">
+                    <span>User</span>
+                    <span>Mode</span>
+                    <span>Difficulty</span>
+                    <span>Score</span>
+                    <span>Timestamp</span>
+                    <span>Admin</span>
+                  </div>
+                  {filteredLeaderboard.map((entry) => (
+                    <div key={entry.id} className="leaderboard-row">
+                      <span>{entry.user}</span>
+                      <span>{entry.mode === "unknown" ? "-" : entry.mode}</span>
+                      <span>{entry.difficulty}</span>
+                      <span>{entry.score}</span>
+                      <span>{new Date(entry.timestamp).toLocaleDateString()}</span>
+                      <span>
+                        <button
+                          type="button"
+                          className="leaderboard-delete-btn"
+                          onClick={() => void handleAdminDelete(entry.id)}
+                          disabled={!adminKey.trim()}
+                        >
+                          Delete
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </section>
+        </div>
       </section>
       <AdRail label="Right" slotId={ADSENSE_RIGHT_SLOT_ID} />
       <footer className="site-footer">Copyright &copy; 2026 SpeedNote Piano</footer>

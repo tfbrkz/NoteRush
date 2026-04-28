@@ -18,7 +18,10 @@ export function AnswerButtons({
   onAnswer
 }: AnswerButtonsProps) {
   return (
-    <section className="answers-panel" aria-label="Answer buttons">
+    <section className="answers-card" aria-label="Answer buttons">
+      <h3>Choose the note</h3>
+      <p>Tap the correct letter as quickly as you can.</p>
+      <div className="answers-panel">
       {LETTERS.map((letter) => {
         const guessedThis = revealAnswer && lastGuess === letter;
         const isCorrect = revealAnswer && letter === correctLetter;
@@ -36,6 +39,7 @@ export function AnswerButtons({
           </button>
         );
       })}
+      </div>
     </section>
   );
 }

@@ -18,33 +18,23 @@ export function ScoreTracker({
   averageResponseMs
 }: ScoreTrackerProps) {
   const total = correct + incorrect;
+  const metrics = [
+    { label: "Streak", value: streak, tone: "accent" },
+    { label: "Correct", value: correct, tone: "success" },
+    { label: "Incorrect", value: incorrect, tone: "danger" },
+    { label: "Total", value: total, tone: "neutral" },
+    { label: "Current timer", value: formatMsAsSeconds(currentNoteElapsedMs), tone: "neutral" },
+    { label: "Average time / note", value: formatMsAsSeconds(averageResponseMs), tone: "neutral" }
+  ] as const;
 
   return (
     <header className="score-panel">
-      <div className="score-card">
-        <span>Streak</span>
-        <strong>{streak}</strong>
-      </div>
-      <div className="score-card">
-        <span>Correct</span>
-        <strong>{correct}</strong>
-      </div>
-      <div className="score-card">
-        <span>Incorrect</span>
-        <strong>{incorrect}</strong>
-      </div>
-      <div className="score-card">
-        <span>Total</span>
-        <strong>{total}</strong>
-      </div>
-      <div className="score-card">
-        <span>Current timer</span>
-        <strong>{formatMsAsSeconds(currentNoteElapsedMs)}</strong>
-      </div>
-      <div className="score-card">
-        <span>Average time per note</span>
-        <strong>{formatMsAsSeconds(averageResponseMs)}</strong>
-      </div>
+      {metrics.map((metric) => (
+        <div key={metric.label} className={`score-card ${metric.tone}`.trim()}>
+          <span>{metric.label}</span>
+          <strong>{metric.value}</strong>
+        </div>
+      ))}
     </header>
   );
 }

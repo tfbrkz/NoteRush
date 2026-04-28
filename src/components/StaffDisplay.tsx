@@ -7,6 +7,8 @@ type StaffDisplayProps = {
   activeNoteIndex: number;
 };
 
+const ACTIVE_NOTE_COLOR = "#8b5cf6";
+
 function renderClefLabel(clef: Clef) {
   return clef === "treble" ? "Treble Clef" : "Bass Clef";
 }
@@ -42,8 +44,7 @@ export function StaffDisplay({ notes, activeNoteIndex }: StaffDisplayProps) {
     }
 
     const idealWidth = 460 + Math.max(0, notes.length - 1) * 70;
-    const minimumWidth = 300;
-    const width = Math.max(minimumWidth, Math.min(idealWidth, Math.floor(availableWidth)));
+    const width = Math.min(idealWidth, Math.max(120, Math.floor(availableWidth)));
     const hasBothClefs = notes.some((note) => note.clef === "treble") && notes.some((note) => note.clef === "bass");
     const height = hasBothClefs ? 280 : 210;
     const container = containerRef.current;
@@ -68,7 +69,7 @@ export function StaffDisplay({ notes, activeNoteIndex }: StaffDisplayProps) {
           duration: note.duration
         });
         if (index === activeNoteIndex) {
-          staveNote.setStyle({ fillStyle: "#2563eb", strokeStyle: "#2563eb" });
+          staveNote.setStyle({ fillStyle: ACTIVE_NOTE_COLOR, strokeStyle: ACTIVE_NOTE_COLOR });
         }
         return staveNote;
       });
@@ -101,7 +102,7 @@ export function StaffDisplay({ notes, activeNoteIndex }: StaffDisplayProps) {
           duration: note.duration
         });
         if (index === activeNoteIndex) {
-          staveNote.setStyle({ fillStyle: "#2563eb", strokeStyle: "#2563eb" });
+          staveNote.setStyle({ fillStyle: ACTIVE_NOTE_COLOR, strokeStyle: ACTIVE_NOTE_COLOR });
         }
         return staveNote;
       }
@@ -116,7 +117,7 @@ export function StaffDisplay({ notes, activeNoteIndex }: StaffDisplayProps) {
           duration: note.duration
         });
         if (index === activeNoteIndex) {
-          staveNote.setStyle({ fillStyle: "#2563eb", strokeStyle: "#2563eb" });
+          staveNote.setStyle({ fillStyle: ACTIVE_NOTE_COLOR, strokeStyle: ACTIVE_NOTE_COLOR });
         }
         return staveNote;
       }
@@ -147,7 +148,7 @@ export function StaffDisplay({ notes, activeNoteIndex }: StaffDisplayProps) {
   return (
     <section className="staff-panel" aria-live="polite">
       <div className="staff-header">
-        <h2>Identify these notes in order</h2>
+        <h2>Read these notes in order</h2>
         <p>
           {(notes.some((note) => note.clef === "treble") && notes.some((note) => note.clef === "bass"))
             ? "Treble + Bass"

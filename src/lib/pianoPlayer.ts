@@ -41,26 +41,13 @@ export function subscribeAudioDebug(listener: (state: AudioDebugState) => void) 
   };
 }
 
-const PRELOAD_NOTES = [
-  "G2",
-  "A2",
-  "B2",
-  "C3",
-  "D3",
-  "E3",
-  "F3",
-  "G3",
-  "A3",
-  "E4",
-  "F4",
-  "G4",
-  "A4",
-  "B4",
-  "C5",
-  "D5",
-  "E5",
-  "F5"
-] as const;
+function midiToSharpLabel(midi: number) {
+  const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
+  const octave = Math.floor(midi / 12) - 1;
+  return `${noteNames[midi % 12]}${octave}`;
+}
+
+const PRELOAD_NOTES = Array.from({ length: 96 - 43 + 1 }, (_, index) => midiToSharpLabel(43 + index));
 
 function getAudioContext() {
   if (!audioContext) {
