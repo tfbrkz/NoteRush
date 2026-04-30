@@ -73,6 +73,7 @@ function App() {
   const { state, actions } = useSpeedNoteSession();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [authUsername, setAuthUsername] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
@@ -114,11 +115,15 @@ function App() {
     void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setUser(data.session?.user ?? null);
+      const existingUsername = data.session?.user?.user_metadata?.username;
+      setAuthUsername(typeof existingUsername === "string" ? existingUsername : "");
     });
     const { data: subscription } = supabase.auth.onAuthStateChange((_event: string, nextSession: Session | null) => {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       setAuthError(null);
+      const existingUsername = nextSession?.user?.user_metadata?.username;
+      setAuthUsername(typeof existingUsername === "string" ? existingUsername : "");
     });
     return () => {
       subscription.subscription.unsubscribe();
@@ -186,7 +191,11 @@ function App() {
 
     void (async () => {
       try {
-        const username = (user.user_metadata?.username as string | undefined) ?? user.email ?? `user-${user.id.slice(0, 8)}`;
+        const username = (user.user_metadata?.username as string | undefined)?.trim();
+        if (!username) {
+          setLeaderboardApiError("Set a leaderboard username in your account section.");
+          return;
+        }
         const response = await fetch("/api/leaderboard", {
           method: "POST",
           headers: {
@@ -229,11 +238,21 @@ function App() {
   ]);
 
   const handleAuthSignup = useCallback(async () => {
+    const trimmedUsername = authUsername.trim();
+    if (!trimmedUsername) {
+      setAuthError("Please choose a username.");
+      return;
+    }
     setAuthBusy(true);
     setAuthError(null);
     const { error } = await supabase.auth.signUp({
       email: authEmail,
-      password: authPassword
+      password: authPassword,
+      options: {
+        data: {
+          username: trimmedUsername
+        }
+      }
     });
     setAuthBusy(false);
     if (error) {
@@ -241,7 +260,7 @@ function App() {
       return;
     }
     setAuthPassword("");
-  }, [authEmail, authPassword]);
+  }, [authEmail, authPassword, authUsername]);
 
   const handleAuthLogin = useCallback(async () => {
     setAuthBusy(true);
@@ -262,6 +281,27 @@ function App() {
     await supabase.auth.signOut();
     setLastAutoSubmittedSignature(null);
   }, []);
+
+  const handleUsernameSave = useCallback(async () => {
+    const trimmedUsername = authUsername.trim();
+    if (!trimmedUsername) {
+      setAuthError("Username cannot be empty.");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError(null);
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        username: trimmedUsername
+      }
+    });
+    setAuthBusy(false);
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+    setAuthUsername(trimmedUsername);
+  }, [authUsername]);
 
   return (
     <main className="page-layout">
@@ -363,6 +403,18 @@ function App() {
               {session && user ? (
                 <div className="auth-panel">
                   <p>Logged in as {user.email}</p>
+                  <div className="leaderboard-submit-row">
+                    <input
+                      type="text"
+                      placeholder="Leaderboard username"
+                      value={authUsername}
+                      onChange={(event) => setAuthUsername(event.target.value)}
+                      autoComplete="nickname"
+                    />
+                    <button type="button" onClick={() => void handleUsernameSave()} disabled={authBusy || !authUsername.trim()}>
+                      Save alias
+                    </button>
+                  </div>
                   <button type="button" className="session-btn" onClick={() => void handleLogout()}>
                     Log out
                   </button>
@@ -371,6 +423,13 @@ function App() {
                 <div className="auth-panel">
                   <p>Sign in or create an account to auto-submit leaderboard runs.</p>
                   <div className="leaderboard-submit-row">
+                    <input
+                      type="text"
+                      placeholder="Username (public alias)"
+                      value={authUsername}
+                      onChange={(event) => setAuthUsername(event.target.value)}
+                      autoComplete="nickname"
+                    />
                     <input
                       type="email"
                       placeholder="Email"
@@ -390,7 +449,11 @@ function App() {
                     <button type="button" onClick={() => void handleAuthLogin()} disabled={authBusy || !authEmail || !authPassword}>
                       Log in
                     </button>
-                    <button type="button" onClick={() => void handleAuthSignup()} disabled={authBusy || !authEmail || !authPassword}>
+                    <button
+                      type="button"
+                      onClick={() => void handleAuthSignup()}
+                      disabled={authBusy || !authUsername.trim() || !authEmail || !authPassword}
+                    >
                       Sign up
                     </button>
                   </div>
