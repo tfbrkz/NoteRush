@@ -355,6 +355,10 @@ function App() {
             feedbackClass={state.feedbackClass}
             showGrandStaff={state.mode === "mixed"}
             noteResults={state.currentNoteResults}
+            rhythmModeEnabled={state.rhythmModeEnabled}
+            scanProgress={state.scanProgress}
+            scanWindowWidth={state.scanWindowWidth}
+            countdownValue={state.countdownValue}
           />
           <AnswerButtons
             disabled={state.locked || !state.gameRunning}
@@ -385,9 +389,13 @@ function App() {
               numberOfSets={state.numberOfSets}
               settingsOpen={settingsOpen}
               midiStatus={midiErrorMessage ? `error (${midiErrorMessage})` : midiStatus}
+              rhythmModeEnabled={state.rhythmModeEnabled}
+              rhythmMsPerNote={state.rhythmMsPerNote}
               onModeChange={actions.onModeChange}
               onDifficultyChange={actions.onDifficultyChange}
               onPracticeModeChange={actions.onPracticeModeChange}
+              onRhythmModeChange={actions.onRhythmModeChange}
+              onRhythmSpeedChange={actions.onRhythmSpeedChange}
               onNotesPerSetChange={actions.onNotesPerSetChange}
               onNumberOfSetsChange={actions.onNumberOfSetsChange}
               onLeaderboardModeChange={actions.onLeaderboardModeChange}

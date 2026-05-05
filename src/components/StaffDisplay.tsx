@@ -8,6 +8,10 @@ type StaffDisplayProps = {
   activeNoteIndex: number;
   showGrandStaff?: boolean;
   noteResults?: NoteResultState[];
+  rhythmModeEnabled?: boolean;
+  scanProgress?: number;
+  scanWindowWidth?: number;
+  countdownValue?: number | null;
 };
 
 const ACTIVE_NOTE_COLOR = "#8b5cf6";
@@ -18,7 +22,16 @@ function renderClefLabel(clef: Clef) {
   return clef === "treble" ? "Treble Clef" : "Bass Clef";
 }
 
-export function StaffDisplay({ notes, activeNoteIndex, showGrandStaff = false, noteResults = [] }: StaffDisplayProps) {
+export function StaffDisplay({
+  notes,
+  activeNoteIndex,
+  showGrandStaff = false,
+  noteResults = [],
+  rhythmModeEnabled = false,
+  scanProgress = 0,
+  scanWindowWidth = 0.16,
+  countdownValue = null
+}: StaffDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const firstNote = notes[0] ?? { clef: "treble" as Clef };
   const [availableWidth, setAvailableWidth] = useState(460);
@@ -177,14 +190,32 @@ export function StaffDisplay({ notes, activeNoteIndex, showGrandStaff = false, n
         </p>
       </div>
       <div
-        ref={containerRef}
         className="staff-canvas"
         aria-label={`Notes on ${
           showGrandStaff || (notes.some((note) => note.clef === "treble") && notes.some((note) => note.clef === "bass"))
             ? "Treble and Bass Clefs"
             : renderClefLabel(firstNote.clef)
         }`}
-      />
+      >
+        <div ref={containerRef} className="staff-render-layer" />
+        {rhythmModeEnabled && (
+          <div
+            className="scan-window"
+            aria-hidden="true"
+            style={{
+              width: `${Math.min(90, Math.max(8, scanWindowWidth * 100))}%`,
+              left: `${Math.min(100, Math.max(0, scanProgress * 100))}%`
+            }}
+          >
+            <div className="scan-window-line" />
+          </div>
+        )}
+        {countdownValue !== null && (
+          <div className="countdown-overlay" aria-live="assertive">
+            <span>{countdownValue}</span>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

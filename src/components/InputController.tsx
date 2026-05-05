@@ -22,9 +22,13 @@ type InputControllerProps = {
   numberOfSets: number;
   settingsOpen: boolean;
   midiStatus: string;
+  rhythmModeEnabled: boolean;
+  rhythmMsPerNote: number;
   onModeChange: (mode: ClefMode) => void;
   onDifficultyChange: (difficulty: DifficultyTier) => void;
   onPracticeModeChange: (practiceMode: PracticeMode) => void;
+  onRhythmModeChange: (enabled: boolean) => void;
+  onRhythmSpeedChange: (msPerNote: number) => void;
   onNotesPerSetChange: (count: number) => void;
   onNumberOfSetsChange: (count: number) => void;
   onLeaderboardModeChange: (enabled: boolean) => void;
@@ -41,9 +45,13 @@ export function InputController({
   numberOfSets,
   settingsOpen,
   midiStatus,
+  rhythmModeEnabled,
+  rhythmMsPerNote,
   onModeChange,
   onDifficultyChange,
   onPracticeModeChange,
+  onRhythmModeChange,
+  onRhythmSpeedChange,
   onNotesPerSetChange,
   onNumberOfSetsChange,
   onLeaderboardModeChange,
@@ -120,6 +128,35 @@ export function InputController({
               </button>
             ))}
           </nav>
+        </div>
+
+        <div className="settings-group" aria-label="Rhythm timing mode">
+          <p className="settings-label">Rhythm timing mode</p>
+          <p className="settings-description">Use the moving scan bar and answer while it overlaps each note.</p>
+          <nav className="mode-row">
+            <button
+              type="button"
+              onClick={() => onRhythmModeChange(!rhythmModeEnabled)}
+              className={rhythmModeEnabled ? "active" : ""}
+              disabled={controlsLocked}
+            >
+              {rhythmModeEnabled ? "Enabled" : "Disabled"}
+            </button>
+          </nav>
+        </div>
+
+        <div className="settings-group slider-row" aria-label="Rhythm speed">
+          <p className="settings-label">Rhythm speed: {(rhythmMsPerNote / 1000).toFixed(1)}s per note</p>
+          <p className="settings-description">Lower values move faster. Higher values give more reaction time.</p>
+          <input
+            type="range"
+            min={600}
+            max={4000}
+            step={100}
+            value={rhythmMsPerNote}
+            onChange={(event) => onRhythmSpeedChange(Number(event.target.value))}
+            disabled={controlsLocked}
+          />
         </div>
 
         <div className="settings-group" aria-label="Notes per set">

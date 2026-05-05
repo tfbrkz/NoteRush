@@ -9,6 +9,10 @@ type StaffContainerProps = {
   feedbackClass: "neutral" | "success" | "error";
   showGrandStaff?: boolean;
   noteResults?: NoteResultState[];
+  rhythmModeEnabled?: boolean;
+  scanProgress?: number;
+  scanWindowWidth?: number;
+  countdownValue?: number | null;
 };
 
 export function StaffContainer({
@@ -17,12 +21,25 @@ export function StaffContainer({
   feedbackMessage,
   feedbackClass,
   showGrandStaff = false,
-  noteResults = []
+  noteResults = [],
+  rhythmModeEnabled = false,
+  scanProgress = 0,
+  scanWindowWidth = 0.16,
+  countdownValue = null
 }: StaffContainerProps) {
   return (
     <>
       <div className="note-focus">
-        <StaffDisplay notes={notes} activeNoteIndex={activeNoteIndex} showGrandStaff={showGrandStaff} noteResults={noteResults} />
+        <StaffDisplay
+          notes={notes}
+          activeNoteIndex={activeNoteIndex}
+          showGrandStaff={showGrandStaff}
+          noteResults={noteResults}
+          rhythmModeEnabled={rhythmModeEnabled}
+          scanProgress={scanProgress}
+          scanWindowWidth={scanWindowWidth}
+          countdownValue={countdownValue}
+        />
       </div>
       <p className={`feedback ${feedbackClass}`}>{feedbackMessage}</p>
     </>

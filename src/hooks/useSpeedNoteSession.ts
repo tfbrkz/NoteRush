@@ -47,6 +47,11 @@ export type SpeedNoteSessionState = {
   roundEnded: boolean;
   leaderboardEligible: boolean;
   remainingSprintMs: number;
+  rhythmModeEnabled: boolean;
+  scanProgress: number;
+  scanWindowWidth: number;
+  countdownValue: number | null;
+  rhythmMsPerNote: number;
 };
 
 const DEFAULT_MODE: ClefMode = "treble";
@@ -55,6 +60,8 @@ const DEFAULT_PRACTICE_MODE: PracticeMode = "classic";
 const DEFAULT_NOTES_PER_SET = 4;
 const DEFAULT_NUMBER_OF_SETS = 5;
 const SPRINT_DURATION_MS = 60_000;
+const DEFAULT_RHYTHM_MS_PER_NOTE = 1_800;
+const RHYTHM_SCAN_WINDOW_WIDTH = 0.16;
 const LEADERBOARD_MODE_PRESET = {
   mode: "treble" as const,
   difficulty: "beginner" as const,
@@ -80,6 +87,8 @@ export function useSpeedNoteSession() {
   const [difficulty, setDifficulty] = useState<DifficultyTier>(DEFAULT_DIFFICULTY);
   const [practiceMode, setPracticeMode] = useState<PracticeMode>(DEFAULT_PRACTICE_MODE);
   const [leaderboardMode, setLeaderboardMode] = useState(false);
+  const [rhythmModeEnabled, setRhythmModeEnabled] = useState(false);
+  const [rhythmMsPerNote, setRhythmMsPerNote] = useState(DEFAULT_RHYTHM_MS_PER_NOTE);
   const [gameRunning, setGameRunning] = useState(false);
   const [numberOfSets, setNumberOfSets] = useState(DEFAULT_NUMBER_OF_SETS);
   const [completedSets, setCompletedSets] = useState(0);
@@ -91,6 +100,7 @@ export function useSpeedNoteSession() {
   const [correctNotesAnswered, setCorrectNotesAnswered] = useState(0);
   const [totalNotesAnswered, setTotalNotesAnswered] = useState(0);
   const [noteStartedAt, setNoteStartedAt] = useState(() => Date.now());
+  const [setStartedAt, setSetStartedAt] = useState(() => Date.now());
   const [elapsedNow, setElapsedNow] = useState(() => Date.now());
   const [lastResponseTimeMs, setLastResponseTimeMs] = useState(0);
   const [locked, setLocked] = useState(false);
@@ -98,6 +108,8 @@ export function useSpeedNoteSession() {
   const [missCountByPitch, setMissCountByPitch] = useState<Map<string, number>>(new Map());
   const [currentSetHadWrong, setCurrentSetHadWrong] = useState(false);
   const nextSetTimeoutRef = useRef<number | null>(null);
+  const countdownIntervalRef = useRef<number | null>(null);
+  const [countdownValue, setCountdownValue] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>({
     revealAnswer: false,
     lastGuess: null,
@@ -117,12 +129,21 @@ export function useSpeedNoteSession() {
   const [currentNoteResults, setCurrentNoteResults] = useState<NoteResultState[]>(
     Array.from({ length: initialSet.length }, () => "pending")
   );
+  const [scanProgress, setScanProgress] = useState(0);
 
   const clearQueuedNextSet = useCallback(() => {
     if (nextSetTimeoutRef.current !== null) {
       window.clearTimeout(nextSetTimeoutRef.current);
       nextSetTimeoutRef.current = null;
     }
+  }, []);
+
+  const clearCountdown = useCallback(() => {
+    if (countdownIntervalRef.current !== null) {
+      window.clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setCountdownValue(null);
   }, []);
 
   const nextNoteSet = useCallback(
@@ -133,10 +154,13 @@ export function useSpeedNoteSession() {
       setCurrentNoteIndex(0);
       setCurrentNoteResults(Array.from({ length: nextNotes.length }, () => "pending"));
       setCurrentSetHadWrong(false);
+      const now = Date.now();
+      setSetStartedAt(now);
       setNoteStartedAt(Date.now());
       setElapsedNow(Date.now());
       setLastResponseTimeMs(0);
       setLocked(false);
+      setScanProgress(0);
       setFeedback({
         revealAnswer: false,
         lastGuess: null,
@@ -154,6 +178,7 @@ export function useSpeedNoteSession() {
       const targetDifficulty = overrides?.difficulty ?? difficulty;
       const targetGenerator = createNoteGenerator(DIFFICULTY_CONFIGS[targetDifficulty]);
       clearQueuedNextSet();
+      clearCountdown();
       setGameRunning(false);
       setCompletedSets(0);
       setStreak(0);
@@ -163,6 +188,7 @@ export function useSpeedNoteSession() {
       setCorrectNotesAnswered(0);
       setTotalNotesAnswered(0);
       setLocked(false);
+      setScanProgress(0);
       setRemainingSprintMs(SPRINT_DURATION_MS);
       setNumberOfSets(targetNumberOfSets);
       const nextNotes = targetGenerator.generateNoteSet(targetMode, targetNotesPerSet, { missCountByPitch });
@@ -170,8 +196,10 @@ export function useSpeedNoteSession() {
       setCurrentNoteIndex(0);
       setCurrentNoteResults(Array.from({ length: nextNotes.length }, () => "pending"));
       setCurrentSetHadWrong(false);
-      setNoteStartedAt(Date.now());
-      setElapsedNow(Date.now());
+      const now = Date.now();
+      setSetStartedAt(now);
+      setNoteStartedAt(now);
+      setElapsedNow(now);
       setLastResponseTimeMs(0);
       setFeedback({
         revealAnswer: false,
@@ -179,7 +207,7 @@ export function useSpeedNoteSession() {
         message
       });
     },
-    [clearQueuedNextSet, difficulty, missCountByPitch, mode, notesPerSet, numberOfSets]
+    [clearCountdown, clearQueuedNextSet, difficulty, missCountByPitch, mode, notesPerSet, numberOfSets]
   );
 
   const start = useCallback(() => {
@@ -195,28 +223,91 @@ export function useSpeedNoteSession() {
     void warmPianoSamples();
     nextNoteSet(mode, notesPerSet);
     setRemainingSprintMs(SPRINT_DURATION_MS);
-    setGameRunning(true);
+    setGameRunning(false);
+    setLocked(true);
+    clearCountdown();
+    setCountdownValue(3);
     setFeedback({
       revealAnswer: false,
       lastGuess: null,
-      message: "Pick the letter name for this note."
+      message: "Get ready..."
     });
-  }, [completedSets, mode, nextNoteSet, notesPerSet, numberOfSets]);
+    countdownIntervalRef.current = window.setInterval(() => {
+      setCountdownValue((current) => {
+        if (current === null) {
+          return null;
+        }
+        if (current <= 1) {
+          if (countdownIntervalRef.current !== null) {
+            window.clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+          }
+          const now = Date.now();
+          setSetStartedAt(now);
+          setNoteStartedAt(now);
+          setElapsedNow(now);
+          setLocked(false);
+          setGameRunning(true);
+          setFeedback({
+            revealAnswer: false,
+            lastGuess: null,
+            message: "Pick the letter name for this note."
+          });
+          return null;
+        }
+        return current - 1;
+      });
+    }, 1_000);
+  }, [clearCountdown, completedSets, mode, nextNoteSet, notesPerSet, numberOfSets]);
 
   const stop = useCallback(() => {
+    clearCountdown();
     resetSessionState("Press Start to begin.");
-  }, [resetSessionState]);
+  }, [clearCountdown, resetSessionState]);
 
   const currentTargetNote = currentNotes[currentNoteIndex] ?? currentNotes[0];
+  const timingSpanMs = Math.max(1, currentNotes.length * rhythmMsPerNote);
+  const noteSlotWidth = 1 / Math.max(1, currentNotes.length);
+  const timingWindowHalf = Math.min(noteSlotWidth * 0.48, RHYTHM_SCAN_WINDOW_WIDTH / 2);
+
+  const getScanProgressAt = useCallback(
+    (timestampMs: number) => {
+      if (!rhythmModeEnabled || !gameRunning || locked) {
+        return 0;
+      }
+      const elapsed = timestampMs - setStartedAt;
+      const normalized = elapsed / timingSpanMs;
+      return Math.max(0, normalized);
+    },
+    [gameRunning, locked, rhythmModeEnabled, setStartedAt, timingSpanMs]
+  );
+
+  const isTimingWindowOpenAt = useCallback(
+    (index: number, progress: number) => {
+      const noteCenter = (index + 0.5) * noteSlotWidth;
+      return Math.abs(progress - noteCenter) <= timingWindowHalf;
+    },
+    [noteSlotWidth, timingWindowHalf]
+  );
 
   const submitGuess = useCallback(
-    (guessLabel: string, lastGuess: NoteLetter | null) => {
+    (guessLabel: string, lastGuess: NoteLetter | null, options?: { timedOut?: boolean }) => {
       if (locked || !gameRunning || !currentTargetNote) {
+        return;
+      }
+      const now = Date.now();
+      const timingProgress = getScanProgressAt(now);
+      if (rhythmModeEnabled && !options?.timedOut && !isTimingWindowOpenAt(currentNoteIndex, timingProgress)) {
+        setFeedback({
+          revealAnswer: true,
+          lastGuess,
+          message: "Out of time window. Wait until the scan bar covers the note."
+        });
         return;
       }
       const exactPitch = DIFFICULTY_CONFIGS[difficulty].exactPitchMatch;
       const isCorrect = isCorrectGuess(guessLabel, currentTargetNote.label, exactPitch);
-      const responseTimeMs = Date.now() - noteStartedAt;
+      const responseTimeMs = now - noteStartedAt;
 
       setLastResponseTimeMs(responseTimeMs);
       setTotalNotesAnswered((value) => value + 1);
@@ -249,9 +340,11 @@ export function useSpeedNoteSession() {
         setFeedback({
           revealAnswer: true,
           lastGuess,
-          message: isCorrect
-            ? `Correct. Now identify note ${currentNoteIndex + 2} of ${currentNotes.length}.`
-            : `Incorrect. Expected ${currentTargetNote.letter}. Continue to note ${currentNoteIndex + 2} of ${currentNotes.length}.`
+          message: options?.timedOut
+            ? `Missed timing window. Expected ${currentTargetNote.letter}. Continue to note ${currentNoteIndex + 2} of ${currentNotes.length}.`
+            : isCorrect
+              ? `Correct. Now identify note ${currentNoteIndex + 2} of ${currentNotes.length}.`
+              : `Incorrect. Expected ${currentTargetNote.letter}. Continue to note ${currentNoteIndex + 2} of ${currentNotes.length}.`
         });
         return;
       }
@@ -266,7 +359,9 @@ export function useSpeedNoteSession() {
         setFeedback({
           revealAnswer: true,
           lastGuess,
-          message: `Set complete with mistakes (${nextCompletedSets}/${numberOfSets}).`
+          message: options?.timedOut
+            ? `Set complete with mistakes (${nextCompletedSets}/${numberOfSets}) due to missed timing.`
+            : `Set complete with mistakes (${nextCompletedSets}/${numberOfSets}).`
         });
       } else {
         setCorrect((value) => value + 1);
@@ -304,7 +399,10 @@ export function useSpeedNoteSession() {
       notesPerSet,
       numberOfSets,
       practiceMode,
-      nextNoteSet
+      nextNoteSet,
+      getScanProgressAt,
+      isTimingWindowOpenAt,
+      rhythmModeEnabled
     ]
   );
 
@@ -345,6 +443,22 @@ export function useSpeedNoteSession() {
       return;
     }
     setPracticeMode(nextPracticeMode);
+  }, [leaderboardMode]);
+
+  const onRhythmModeChange = useCallback((enabled: boolean) => {
+    if (leaderboardMode) {
+      return;
+    }
+    setRhythmModeEnabled(enabled);
+    resetSessionState(enabled ? "Rhythm timing mode enabled. Press Start to begin." : "Rhythm timing mode disabled. Press Start to begin.");
+  }, [leaderboardMode, resetSessionState]);
+
+  const onRhythmSpeedChange = useCallback((nextMsPerNote: number) => {
+    if (leaderboardMode) {
+      return;
+    }
+    const clamped = Math.max(600, Math.min(4000, Math.round(nextMsPerNote)));
+    setRhythmMsPerNote(clamped);
   }, [leaderboardMode]);
 
   const onNotesPerSetChange = useCallback(
@@ -417,10 +531,30 @@ export function useSpeedNoteSession() {
   }, [clearQueuedNextSet, gameRunning, locked, practiceMode]);
 
   useEffect(() => {
+    if (!rhythmModeEnabled || locked || !gameRunning || countdownValue !== null) {
+      setScanProgress(0);
+      return;
+    }
+    const tick = () => {
+      const progress = getScanProgressAt(Date.now());
+      setScanProgress(Math.min(1, progress));
+      if (progress >= 1) {
+        submitGuess("__timeout__", null, { timedOut: true });
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 40);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [countdownValue, gameRunning, getScanProgressAt, locked, rhythmModeEnabled, submitGuess]);
+
+  useEffect(() => {
     return () => {
       clearQueuedNextSet();
+      clearCountdown();
     };
-  }, [clearQueuedNextSet]);
+  }, [clearCountdown, clearQueuedNextSet]);
 
   const currentNoteElapsedMs = useMemo(() => {
     const elapsed = locked ? lastResponseTimeMs : elapsedNow - noteStartedAt;
@@ -464,7 +598,12 @@ export function useSpeedNoteSession() {
       feedbackClass,
       roundEnded,
       leaderboardEligible,
-      remainingSprintMs
+      remainingSprintMs,
+      rhythmModeEnabled,
+      scanProgress,
+      scanWindowWidth: RHYTHM_SCAN_WINDOW_WIDTH,
+      countdownValue,
+      rhythmMsPerNote
     } satisfies SpeedNoteSessionState,
     actions: {
       start,
@@ -474,6 +613,8 @@ export function useSpeedNoteSession() {
       onModeChange,
       onDifficultyChange,
       onPracticeModeChange,
+      onRhythmModeChange,
+      onRhythmSpeedChange,
       onNotesPerSetChange,
       onNumberOfSetsChange,
       onLeaderboardModeChange
