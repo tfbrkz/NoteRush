@@ -57,11 +57,27 @@ export function InputController({
   onLeaderboardModeChange,
   onShowSolvedNoteLettersChange
 }: InputControllerProps) {
-  const controlsLocked = gameRunning || leaderboardMode;
+  const comingSoonLocked = true;
+  const controlsLocked = gameRunning;
+  const confirmDisableLeaderboardMode = () =>
+    window.confirm("This will disable leaderboard mode. Would you like to proceed?");
+  const runLeaderboardGuarded = (callback: () => void) => {
+    if (leaderboardMode) {
+      if (!confirmDisableLeaderboardMode()) {
+        return;
+      }
+      onLeaderboardModeChange(false);
+    }
+    callback();
+  };
 
   return (
     <section className="settings-panel" aria-label="Training settings">
       <h3>Training Settings</h3>
+      <p className="settings-description">Further game modes and options coming soon.</p>
+      <div className="settings-overlay" aria-hidden="true">
+        <span>Modifications to be launched soon</span>
+      </div>
 
       <div className="settings-group" aria-label="Leaderboard mode">
         <p className="settings-label">Leaderboard mode</p>
@@ -86,7 +102,7 @@ export function InputController({
             type="button"
             onClick={() => onShowSolvedNoteLettersChange(!showSolvedNoteLetters)}
             className={showSolvedNoteLetters ? "active" : ""}
-            disabled={gameRunning}
+            disabled={gameRunning || comingSoonLocked}
           >
             {showSolvedNoteLetters ? "Enabled" : "Disabled"}
           </button>
@@ -97,13 +113,28 @@ export function InputController({
           <p className="settings-label">Clef mode</p>
           <p className="settings-description">Choose which staff to train on.</p>
           <nav className="mode-row">
-            <button type="button" onClick={() => onModeChange("treble")} className={mode === "treble" ? "active" : ""} disabled={controlsLocked}>
+            <button
+              type="button"
+              onClick={() => runLeaderboardGuarded(() => onModeChange("treble"))}
+              className={mode === "treble" ? "active" : ""}
+              disabled={controlsLocked || comingSoonLocked}
+            >
               Treble
             </button>
-            <button type="button" onClick={() => onModeChange("bass")} className={mode === "bass" ? "active" : ""} disabled={controlsLocked}>
+            <button
+              type="button"
+              onClick={() => runLeaderboardGuarded(() => onModeChange("bass"))}
+              className={mode === "bass" ? "active" : ""}
+              disabled={controlsLocked || comingSoonLocked}
+            >
               Bass
             </button>
-            <button type="button" onClick={() => onModeChange("mixed")} className={mode === "mixed" ? "active" : ""} disabled={controlsLocked}>
+            <button
+              type="button"
+              onClick={() => runLeaderboardGuarded(() => onModeChange("mixed"))}
+              className={mode === "mixed" ? "active" : ""}
+              disabled={controlsLocked || comingSoonLocked}
+            >
               Mixed
             </button>
           </nav>
@@ -117,9 +148,9 @@ export function InputController({
               <button
                 key={option.value}
                 type="button"
-                onClick={() => onDifficultyChange(option.value)}
+                onClick={() => runLeaderboardGuarded(() => onDifficultyChange(option.value))}
                 className={difficulty === option.value ? "active" : ""}
-                disabled={controlsLocked}
+                disabled={controlsLocked || comingSoonLocked}
               >
                 {option.label}
               </button>
@@ -135,9 +166,9 @@ export function InputController({
               <button
                 key={option.value}
                 type="button"
-                onClick={() => onPracticeModeChange(option.value)}
+                onClick={() => runLeaderboardGuarded(() => onPracticeModeChange(option.value))}
                 className={practiceMode === option.value ? "active" : ""}
-                disabled={controlsLocked}
+                disabled={controlsLocked || comingSoonLocked}
               >
                 {option.label}
               </button>
@@ -151,9 +182,9 @@ export function InputController({
           <nav className="mode-row">
             <button
               type="button"
-              onClick={() => onRhythmModeChange(!rhythmModeEnabled)}
+              onClick={() => runLeaderboardGuarded(() => onRhythmModeChange(!rhythmModeEnabled))}
               className={rhythmModeEnabled ? "active" : ""}
-              disabled={controlsLocked}
+              disabled={controlsLocked || comingSoonLocked}
             >
               {rhythmModeEnabled ? "Enabled" : "Disabled"}
             </button>
@@ -169,8 +200,8 @@ export function InputController({
             max={4000}
             step={100}
             value={rhythmMsPerNote}
-            onChange={(event) => onRhythmSpeedChange(Number(event.target.value))}
-            disabled={controlsLocked}
+            onChange={(event) => runLeaderboardGuarded(() => onRhythmSpeedChange(Number(event.target.value)))}
+            disabled={controlsLocked || comingSoonLocked}
           />
         </div>
 
@@ -182,9 +213,9 @@ export function InputController({
               <button
                 key={count}
                 type="button"
-                onClick={() => onNotesPerSetChange(count)}
+                onClick={() => runLeaderboardGuarded(() => onNotesPerSetChange(count))}
                 className={notesPerSet === count ? "active" : ""}
-                disabled={controlsLocked}
+                disabled={controlsLocked || comingSoonLocked}
               >
                 {count}
               </button>
@@ -201,8 +232,8 @@ export function InputController({
             max={50}
             step={1}
             value={numberOfSets}
-            onChange={(event) => onNumberOfSetsChange(Number(event.target.value))}
-            disabled={controlsLocked}
+            onChange={(event) => runLeaderboardGuarded(() => onNumberOfSetsChange(Number(event.target.value)))}
+            disabled={controlsLocked || comingSoonLocked}
           />
         </div>
 

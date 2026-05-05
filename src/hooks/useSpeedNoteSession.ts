@@ -452,56 +452,38 @@ export function useSpeedNoteSession() {
   );
 
   const onDifficultyChange = useCallback((nextDifficulty: DifficultyTier) => {
-    if (leaderboardMode) {
-      return;
-    }
     setDifficulty(nextDifficulty);
     setMissCountByPitch(new Map());
     resetSessionState("Difficulty updated. Press Start to begin.", { difficulty: nextDifficulty });
-  }, [leaderboardMode, resetSessionState]);
+  }, [resetSessionState]);
 
   const onPracticeModeChange = useCallback((nextPracticeMode: PracticeMode) => {
-    if (leaderboardMode) {
-      return;
-    }
     setPracticeMode(nextPracticeMode);
-  }, [leaderboardMode]);
+  }, []);
 
   const onRhythmModeChange = useCallback((enabled: boolean) => {
-    if (leaderboardMode) {
-      return;
-    }
     setRhythmModeEnabled(enabled);
     resetSessionState(enabled ? "Rhythm timing mode enabled. Press Start to begin." : "Rhythm timing mode disabled. Press Start to begin.");
-  }, [leaderboardMode, resetSessionState]);
+  }, [resetSessionState]);
 
   const onRhythmSpeedChange = useCallback((nextMsPerNote: number) => {
-    if (leaderboardMode) {
-      return;
-    }
     const clamped = Math.max(600, Math.min(4000, Math.round(nextMsPerNote)));
     setRhythmMsPerNote(clamped);
-  }, [leaderboardMode]);
+  }, []);
 
   const onNotesPerSetChange = useCallback(
     (count: number) => {
-      if (leaderboardMode) {
-        return;
-      }
       setNotesPerSet(count);
       resetSessionState("Set size updated. Press Start to begin.", { notesPerSet: count });
     },
-    [leaderboardMode, resetSessionState]
+    [resetSessionState]
   );
 
   const onNumberOfSetsChange = useCallback(
     (count: number) => {
-      if (leaderboardMode) {
-        return;
-      }
       resetSessionState(`Number of sets updated to ${count}. Press Start to begin.`, { numberOfSets: count });
     },
-    [leaderboardMode, resetSessionState]
+    [resetSessionState]
   );
 
   const onLeaderboardModeChange = useCallback(
